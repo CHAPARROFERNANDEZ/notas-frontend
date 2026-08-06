@@ -57,3 +57,8 @@ export async function comprobarSalud() {
   const r = await fetch(`${API_BASE}/health`);
   return manejarRespuesta(r, "Backend no responde");
 }
+
+export async function borrarPropuesta(id) {
+  const r = await fetch(`${API_BASE}/propuestas/${id}`, { method: "DELETE" });
+  return manejarRespuesta(r, "Error borrando la propuesta");
+}
