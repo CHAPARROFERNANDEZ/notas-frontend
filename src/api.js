@@ -36,6 +36,23 @@ export async function obtenerInforme(id) {
   return manejarRespuesta(r, "Error generando informe");
 }
 
+export async function descargarPresentacion(id, nombreSugerido = "informe.pptx") {
+  const r = await fetch(`${API_BASE}/propuestas/${id}/presentacion`);
+  if (!r.ok) {
+    const texto = await r.text().catch(() => "");
+    throw new Error(`Error generando la presentación (HTTP ${r.status}) ${texto.slice(0, 300)}`);
+  }
+  const blob = await r.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nombreSugerido;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 export async function comprobarSalud() {
   const r = await fetch(`${API_BASE}/health`);
   return manejarRespuesta(r, "Backend no responde");
