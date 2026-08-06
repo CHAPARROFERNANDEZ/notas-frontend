@@ -3,9 +3,9 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine, Tooltip,
 } from "recharts";
 import {
-  Plus, ChevronLeft, RefreshCw, AlertTriangle, Loader2, FileText, Scale, LayoutGrid, Check, X, Download, Presentation,
+  Plus, ChevronLeft, RefreshCw, AlertTriangle, Loader2, FileText, Scale, LayoutGrid, Check, X, Download, Presentation, Trash2,
 } from "lucide-react";
-import { listarPropuestas, crearPropuesta, obtenerAnalisis, obtenerInforme, comprobarSalud, descargarPresentacion } from "./api.js";
+import { listarPropuestas, crearPropuesta, obtenerAnalisis, obtenerInforme, comprobarSalud, descargarPresentacion, borrarPropuesta } from "./api.js";
 
 // ---------- design tokens (heredados del prototipo aprobado) ----------
 const C = {
@@ -648,7 +648,26 @@ function ComparadorView({ propuestas, onVolver }) {
 }
 
 // ---------- Dashboard ----------
-function Dashboard({ propuestas, cargando, onSeleccionar, onNueva, onComparar, error }) {
+function Dashboard({ propuestas, cargando, onSeleccionar, onNueva, onComparar, onEliminar, error }) {
+  const [borrandoId, setBorrandoId] = useState(null);
+
+  const manejarBorrar = async (e, p) => {
+    e.stopPropagation();
+    const confirmado = window.confirm(
+      `¿Borrar la propuesta ${p.subyacentes.join(" / ")}? Esta acción no se puede deshacer.`
+    );
+    if (!confirmado) return;
+    setBorrandoId(p.id);
+    try {
+      await borrarPropuesta(p.id);
+      onEliminar();
+    } catch (err) {
+      alert(err.message || String(err));
+    } finally {
+      setBorrandoId(null);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -695,16 +714,29 @@ function Dashboard({ propuestas, cargando, onSeleccionar, onNueva, onComparar, e
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
         {propuestas.map((p) => (
-          <button key={p.id} onClick={() => onSeleccionar(p)} style={{
+          <div key={p.id} onClick={() => onSeleccionar(p)} style={{
             ...card, textAlign: "left", cursor: "pointer", display: "flex", flexDirection: "column", gap: 8,
+            position: "relative",
           }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: C.text }}>{p.subyacentes.join(" / ")}</div>
+            <button
+              onClick={(e) => manejarBorrar(e, p)}
+              disabled={borrandoId === p.id}
+              title="Borrar propuesta"
+              style={{
+                position: "absolute", top: 10, right: 10, background: "transparent", border: "none",
+                color: C.textMuted, cursor: "pointer", padding: 4, borderRadius: 6,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              {borrandoId === p.id ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
+            </button>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: C.text, paddingRight: 20 }}>{p.subyacentes.join(" / ")}</div>
             <div style={{ ...label }}>{p.banco} · {p.plazo_anios} años</div>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontFamily: FONT_MONO, fontSize: 12, color: C.textSec }}>
               <span>Barrera {p.barrera_pct}%</span>
               <span style={{ color: C.gold }}>Cupón {p.cupon_anual_pct}%</span>
             </div>
-          </button>
+          </div>
         ))}
       </div>
     </div>
@@ -779,6 +811,7 @@ export default function App() {
             onSeleccionar={(p) => { setPropuestaActiva(p); setVista("detalle"); }}
             onNueva={() => setVista("nueva")}
             onComparar={() => setVista("comparador")}
+            onEliminar={() => cargarPropuestas()}
           />
         )}
         {vista === "nueva" && (
