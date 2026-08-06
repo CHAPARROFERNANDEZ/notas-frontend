@@ -3,9 +3,9 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine, Tooltip,
 } from "recharts";
 import {
-  Plus, ChevronLeft, RefreshCw, AlertTriangle, Loader2, FileText, Scale, LayoutGrid, Check, X,
+  Plus, ChevronLeft, RefreshCw, AlertTriangle, Loader2, FileText, Scale, LayoutGrid, Check, X, Download, Presentation,
 } from "lucide-react";
-import { listarPropuestas, crearPropuesta, obtenerAnalisis, obtenerInforme, comprobarSalud } from "./api.js";
+import { listarPropuestas, crearPropuesta, obtenerAnalisis, obtenerInforme, comprobarSalud, descargarPresentacion } from "./api.js";
 
 // ---------- design tokens (heredados del prototipo aprobado) ----------
 const C = {
@@ -116,6 +116,79 @@ function FanChart({ trayectorias, barreraPct }) {
         })}
       </LineChart>
     </ResponsiveContainer>
+  );
+}
+
+// ---------- Informe: parser markdown ligero (sin dependencias nuevas) ----------
+function parsearMarkdownInforme(md) {
+  const lineas = (md || "").split("\n");
+  const bloques = [];
+  let listaActual = null;
+  lineas.forEach((linea) => {
+    const t = linea.trim();
+    if (t.startsWith("## ")) {
+      if (listaActual) { bloques.push(listaActual); listaActual = null; }
+      bloques.push({ tipo: "h2", texto: t.slice(3) });
+    } else if (t.startsWith("- ") || t.startsWith("* ")) {
+      if (!listaActual) listaActual = { tipo: "ul", items: [] };
+      listaActual.items.push(t.slice(2));
+    } else if (t === "") {
+      if (listaActual) { bloques.push(listaActual); listaActual = null; }
+    } else {
+      if (listaActual) { bloques.push(listaActual); listaActual = null; }
+      bloques.push({ tipo: "p", texto: t });
+    }
+  });
+  if (listaActual) bloques.push(listaActual);
+  return bloques;
+}
+
+function TextoConNegrita({ texto }) {
+  const partes = String(texto).split(/(\*\*[^*]+\*\*)/g);
+  return (
+    <>
+      {partes.map((p, i) =>
+        p.startsWith("**") && p.endsWith("**")
+          ? <strong key={i}>{p.slice(2, -2)}</strong>
+          : <React.Fragment key={i}>{p}</React.Fragment>
+      )}
+    </>
+  );
+}
+
+function InformeRenderizado({ markdown, colorTexto = C.textSec, colorTitulo = C.text }) {
+  const bloques = useMemo(() => parsearMarkdownInforme(markdown), [markdown]);
+  return (
+    <div>
+      {bloques.map((b, i) => {
+        if (b.tipo === "h2") {
+          return (
+            <div key={i} style={{
+              fontFamily: FONT_DISPLAY, fontSize: 17, color: colorTitulo, marginTop: i === 0 ? 0 : 20,
+              marginBottom: 8, borderBottom: `1px solid ${C.border}`, paddingBottom: 6,
+            }}>
+              <TextoConNegrita texto={b.texto} />
+            </div>
+          );
+        }
+        if (b.tipo === "ul") {
+          return (
+            <ul key={i} style={{ margin: "0 0 10px 0", paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+              {b.items.map((it, j) => (
+                <li key={j} style={{ color: colorTexto, fontFamily: FONT_BODY, fontSize: 13, lineHeight: 1.55 }}>
+                  <TextoConNegrita texto={it} />
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        return (
+          <p key={i} style={{ color: colorTexto, fontFamily: FONT_BODY, fontSize: 13, lineHeight: 1.6, margin: "0 0 10px 0" }}>
+            <TextoConNegrita texto={b.texto} />
+          </p>
+        );
+      })}
+    </div>
   );
 }
 
@@ -246,6 +319,7 @@ function DetalleView({ propuesta, onVolver }) {
   const [error, setError] = useState(null);
   const [informe, setInforme] = useState(null);
   const [generandoInforme, setGenerandoInforme] = useState(false);
+  const [generandoPptx, setGenerandoPptx] = useState(false);
 
   const cargar = useCallback(async (forzar = false) => {
     setCargando(true);
@@ -271,6 +345,19 @@ function DetalleView({ propuesta, onVolver }) {
       setError(err.message || String(err));
     } finally {
       setGenerandoInforme(false);
+    }
+  };
+
+  const pedirPresentacion = async () => {
+    setGenerandoPptx(true);
+    setError(null);
+    try {
+      const nombre = `CFWealth_${propuesta.subyacentes.join("_")}.pptx`;
+      await descargarPresentacion(propuesta.id, nombre);
+    } catch (err) {
+      setError(err.message || String(err));
+    } finally {
+      setGenerandoPptx(false);
     }
   };
 
@@ -375,20 +462,74 @@ function DetalleView({ propuesta, onVolver }) {
           <div style={card}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: informe ? 12 : 0 }}>
               <div style={{ ...label }}>Informe para socios (Jordi / JEP)</div>
-              <button onClick={pedirInforme} disabled={generandoInforme} style={{
-                background: "transparent", border: `1px solid ${C.gold}66`, color: C.gold, borderRadius: 8,
-                padding: "7px 12px", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer",
-                display: "flex", alignItems: "center", gap: 6,
-              }}>
-                {generandoInforme ? <Loader2 size={13} className="spin" /> : <FileText size={13} />}
-                {informe ? "Regenerar informe" : "Generar informe"}
-              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                {informe && (
+                  <button onClick={() => window.print()} style={{
+                    background: "transparent", border: `1px solid ${C.border}`, color: C.textSec, borderRadius: 8,
+                    padding: "7px 12px", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 6,
+                  }}>
+                    <Download size={13} /> Descargar PDF
+                  </button>
+                )}
+                <button onClick={pedirPresentacion} disabled={generandoPptx} style={{
+                  background: "transparent", border: `1px solid ${C.border}`, color: C.textSec, borderRadius: 8,
+                  padding: "7px 12px", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}>
+                  {generandoPptx ? <Loader2 size={13} className="spin" /> : <Presentation size={13} />}
+                  Descargar PowerPoint
+                </button>
+                <button onClick={pedirInforme} disabled={generandoInforme} style={{
+                  background: "transparent", border: `1px solid ${C.gold}66`, color: C.gold, borderRadius: 8,
+                  padding: "7px 12px", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}>
+                  {generandoInforme ? <Loader2 size={13} className="spin" /> : <FileText size={13} />}
+                  {informe ? "Regenerar informe" : "Generar informe"}
+                </button>
+              </div>
             </div>
+
             {informe && (
-              <div style={{
-                whiteSpace: "pre-wrap", color: C.textSec, fontFamily: FONT_BODY, fontSize: 13,
-                lineHeight: 1.6, maxHeight: 400, overflowY: "auto", paddingRight: 6,
-              }}>{informe}</div>
+              <div id="informe-imprimible" style={{ maxHeight: 600, overflowY: "auto", paddingRight: 6 }}>
+                {/* Encabezado -- solo relevante visualmente al imprimir, pero no estorba en pantalla */}
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.text, marginBottom: 4 }}>
+                    CF Wealth · Informe pre-inversión
+                  </div>
+                  <div style={{ ...label, marginBottom: 10 }}>
+                    {propuesta.subyacentes.join(" / ")} · {propuesta.banco} · {propuesta.plazo_anios} años ·{" "}
+                    {propuesta.frecuencia_observacion} · generado {new Date().toLocaleDateString("es-ES")}
+                  </div>
+                  <VeredictoBadge v={analisis.veredicto} />
+                </div>
+
+                {/* Métricas clave, repetidas aquí para que el PDF sea autocontenido */}
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+                  <MetricCard label="Prob. tocar barrera" value={`${(analisis.monte_carlo.prob_toca_barrera * 100).toFixed(1)}%`}
+                    color={analisis.monte_carlo.prob_toca_barrera > 0.4 ? C.coral : analisis.monte_carlo.prob_toca_barrera > 0.2 ? C.amber : C.teal} />
+                  <MetricCard label="Prob. autocall" value={`${(analisis.monte_carlo.prob_autocall * 100).toFixed(1)}%`} color={C.text} />
+                  <MetricCard label="Cupón nominal" value={`${propuesta.cupon_anual_pct.toFixed(1)}%`} color={C.gold} />
+                  <MetricCard label="Cupón realmente esperado" value={`${analisis.monte_carlo.cupon_esperado_anualizado_pct.toFixed(1)}%`} />
+                </div>
+
+                {/* Gráfico de trayectorias, incluido para que el informe sea visual, no solo texto */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ ...label, marginBottom: 8 }}>Trayectorias simuladas (worst-of)</div>
+                  <FanChart trayectorias={analisis.monte_carlo.trayectorias_muestra} barreraPct={propuesta.barrera_pct / 100} />
+                </div>
+
+                {analisis.subyacentes.length > 1 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ ...label, marginBottom: 8 }}>Correlación entre subyacentes</div>
+                    <CorrelationHeatmap tickers={analisis.subyacentes.map((s) => s.ticker)} matriz={analisis.correlacion} />
+                  </div>
+                )}
+
+                {/* Texto redactado por la IA, ya formateado en vez de texto plano */}
+                <InformeRenderizado markdown={informe} />
+              </div>
             )}
           </div>
         </>
@@ -605,6 +746,19 @@ export default function App() {
         input:focus, select:focus { border-color: ${C.gold} !important; }
         button { transition: opacity .15s ease, border-color .15s ease; }
         button:hover:not(:disabled) { opacity: 0.92; }
+
+        @media print {
+          body * { visibility: hidden; }
+          #informe-imprimible, #informe-imprimible * { visibility: visible; }
+          #informe-imprimible {
+            position: absolute; left: 0; top: 0; width: 100%;
+            max-height: none !important; overflow: visible !important;
+            background: #fff; padding: 24px;
+          }
+          #informe-imprimible, #informe-imprimible * {
+            color: #111 !important; background: transparent !important;
+          }
+        }
       `}</style>
 
       <div style={{ borderBottom: `0.5px solid ${C.border}`, padding: "16px 28px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
