@@ -838,9 +838,25 @@ function NoticiasView() {
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {resultados && resultados.map((n, i) => (
           <a key={i} href={n.url} target="_blank" rel="noreferrer" style={{ ...card, textDecoration: "none", display: "block" }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, color: C.text, marginBottom: 5 }}>{n.titular}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 5 }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, color: C.text }}>{n.titular}</div>
+              {n.prioridad && (
+                <span style={{
+                  flexShrink: 0, fontSize: 10, fontFamily: FONT_MONO, textTransform: "uppercase",
+                  padding: "2px 7px", borderRadius: 999,
+                  color: n.prioridad === "alta" ? C.coral : n.prioridad === "media" ? C.amber : C.textMuted,
+                  border: `1px solid ${n.prioridad === "alta" ? C.coral : n.prioridad === "media" ? C.amber : C.textMuted}55`,
+                }}>
+                  {n.prioridad}
+                </span>
+              )}
+            </div>
             <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.textSec, lineHeight: 1.55, marginBottom: 7 }}>{n.resumen}</div>
-            <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.textMuted }}>{n.fuente}</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.textMuted, display: "flex", gap: 8 }}>
+              {n.fecha && <span>{n.fecha}</span>}
+              {n.fecha && n.fuente && <span>·</span>}
+              {n.fuente && <span>{n.fuente}</span>}
+            </div>
           </a>
         ))}
       </div>
