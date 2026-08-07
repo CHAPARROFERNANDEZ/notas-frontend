@@ -63,8 +63,16 @@ export async function borrarPropuesta(id) {
   return manejarRespuesta(r, "Error borrando la propuesta");
 }
 
-export async function obtenerCotizacion(ticker) {
-  const r = await fetch(`${API_BASE}/mercado/${encodeURIComponent(ticker)}`);
+export async function obtenerCotizacion(ticker, forzar = false) {
+  const qs = forzar ? "?forzar=true" : "";
+  const r = await fetch(`${API_BASE}/mercado/${encodeURIComponent(ticker)}${qs}`);
+  if (r.status === 429) {
+    const cuerpo = await r.json().catch(() => ({}));
+    const segundos = cuerpo?.detail?.segundos_restantes ?? 45;
+    const err = new Error(`Espera ${segundos}s antes de refrescar de nuevo.`);
+    err.cooldownSegundos = segundos;
+    throw err;
+  }
   return manejarRespuesta(r, `Error obteniendo cotización de ${ticker}`);
 }
 
