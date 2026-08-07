@@ -62,3 +62,28 @@ export async function borrarPropuesta(id) {
   const r = await fetch(`${API_BASE}/propuestas/${id}`, { method: "DELETE" });
   return manejarRespuesta(r, "Error borrando la propuesta");
 }
+
+export async function obtenerCotizacion(ticker) {
+  const r = await fetch(`${API_BASE}/mercado/${encodeURIComponent(ticker)}`);
+  return manejarRespuesta(r, `Error obteniendo cotización de ${ticker}`);
+}
+
+export async function listarFavoritos() {
+  const r = await fetch(`${API_BASE}/favoritos`);
+  return manejarRespuesta(r, "Error listando favoritos");
+}
+
+export async function anadirFavorito(ticker) {
+  const r = await fetch(`${API_BASE}/favoritos/${encodeURIComponent(ticker)}`, { method: "POST" });
+  return manejarRespuesta(r, "Error añadiendo favorito");
+}
+
+export async function quitarFavorito(ticker) {
+  const r = await fetch(`${API_BASE}/favoritos/${encodeURIComponent(ticker)}`, { method: "DELETE" });
+  return manejarRespuesta(r, "Error quitando favorito");
+}
+
+export async function buscarNoticias(query) {
+  const r = await fetch(`${API_BASE}/noticias?q=${encodeURIComponent(query)}`);
+  return manejarRespuesta(r, "Error buscando noticias");
+}
