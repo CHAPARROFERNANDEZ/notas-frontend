@@ -3,9 +3,12 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine, Tooltip,
 } from "recharts";
 import {
-  Plus, ChevronLeft, RefreshCw, AlertTriangle, Loader2, FileText, Scale, LayoutGrid, Check, X, Download, Presentation, Trash2,
+  Plus, ChevronLeft, RefreshCw, AlertTriangle, Loader2, FileText, Scale, LayoutGrid, Check, X, Download, Presentation, Trash2, Star, Search, Newspaper,
 } from "lucide-react";
-import { listarPropuestas, crearPropuesta, obtenerAnalisis, obtenerInforme, comprobarSalud, descargarPresentacion, borrarPropuesta } from "./api.js";
+import {
+  listarPropuestas, crearPropuesta, obtenerAnalisis, obtenerInforme, comprobarSalud, descargarPresentacion, borrarPropuesta,
+  obtenerCotizacion, listarFavoritos, anadirFavorito, quitarFavorito, buscarNoticias,
+} from "./api.js";
 
 // ---------- design tokens (heredados del prototipo aprobado) ----------
 const C = {
@@ -647,8 +650,239 @@ function ComparadorView({ propuestas, onVolver }) {
   );
 }
 
+// ---------- Mercado: gráfico de precio real (no simulado) ----------
+function PriceChart({ historial }) {
+  if (!historial || historial.length === 0) {
+    return <div style={{ ...label, padding: 24, textAlign: "center" }}>Sin histórico disponible.</div>;
+  }
+  return (
+    <ResponsiveContainer width="100%" height={260}>
+      <LineChart data={historial} margin={{ top: 8, right: 12, left: -8, bottom: 0 }}>
+        <CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false} />
+        <XAxis dataKey="fecha" tick={{ fill: C.textMuted, fontSize: 10, fontFamily: FONT_MONO }}
+          tickFormatter={(v) => v.slice(5)} axisLine={{ stroke: C.border }} tickLine={false} minTickGap={50} />
+        <YAxis tick={{ fill: C.textMuted, fontSize: 11, fontFamily: FONT_MONO }} domain={["auto", "auto"]}
+          tickFormatter={(v) => `$${v.toFixed(0)}`} axisLine={{ stroke: C.border }} tickLine={false} />
+        <Tooltip contentStyle={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, fontFamily: FONT_BODY, fontSize: 12 }}
+          formatter={(v) => [`$${Number(v).toFixed(2)}`, "precio"]} labelFormatter={(v) => v} />
+        <Line type="monotone" dataKey="precio" stroke={C.gold} strokeWidth={1.6} dot={false} isAnimationActive={false} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function MercadoView({ favoritos, onFavoritosChange, tickerInicial, onTickerConsumido }) {
+  const [query, setQuery] = useState(tickerInicial || "");
+  const [cotizacion, setCotizacion] = useState(null);
+  const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState(null);
+  const [cambiandoFavorito, setCambiandoFavorito] = useState(false);
+
+  const buscar = useCallback(async (tickerBuscado) => {
+    const t = (tickerBuscado || query).trim();
+    if (!t) return;
+    setCargando(true);
+    setError(null);
+    try {
+      const c = await obtenerCotizacion(t.toUpperCase());
+      setCotizacion(c);
+      setQuery(t.toUpperCase());
+    } catch (err) {
+      setError(err.message || String(err));
+      setCotizacion(null);
+    } finally {
+      setCargando(false);
+    }
+  }, [query]);
+
+  useEffect(() => {
+    if (tickerInicial) {
+      buscar(tickerInicial);
+      onTickerConsumido?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickerInicial]);
+
+  const esFavorito = !!(cotizacion && favoritos.some((f) => f.ticker === cotizacion.ticker));
+
+  const toggleFavorito = async () => {
+    if (!cotizacion) return;
+    setCambiandoFavorito(true);
+    try {
+      if (esFavorito) await quitarFavorito(cotizacion.ticker);
+      else await anadirFavorito(cotizacion.ticker);
+      onFavoritosChange();
+    } catch (err) {
+      setError(err.message || String(err));
+    } finally {
+      setCambiandoFavorito(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, color: C.text }}>Mercado</div>
+        <div style={{ ...label }}>Cotización en tiempo real de cualquier acción</div>
+      </div>
+
+      <form onSubmit={(e) => { e.preventDefault(); buscar(); }} style={{ display: "flex", gap: 8 }}>
+        <input style={{ ...inputStyle, maxWidth: 220 }} value={query}
+          onChange={(e) => setQuery(e.target.value.toUpperCase())} placeholder="Ticker, ej. AAPL" />
+        <button type="submit" disabled={cargando} style={{
+          background: C.gold, border: "none", color: "#1A1200", borderRadius: 8, fontWeight: 600,
+          padding: "9px 16px", fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 7,
+        }}>
+          {cargando ? <Loader2 size={15} className="spin" /> : <Search size={14} />}
+          Buscar
+        </button>
+      </form>
+
+      {error && (
+        <div style={{ ...card, borderColor: `${C.coral}55`, color: C.coral, fontSize: 13, display: "flex", gap: 8, alignItems: "center" }}>
+          <AlertTriangle size={16} /> {error}
+        </div>
+      )}
+
+      {cotizacion && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.text }}>
+              {cotizacion.nombre} <span style={{ color: C.textMuted, fontFamily: FONT_MONO, fontSize: 16 }}>{cotizacion.ticker}</span>
+            </div>
+            <button onClick={toggleFavorito} disabled={cambiandoFavorito} title={esFavorito ? "Quitar de favoritos" : "Añadir a favoritos"} style={{
+              background: "none", border: "none", cursor: "pointer", color: esFavorito ? C.gold : C.textMuted,
+              display: "flex", alignItems: "center",
+            }}>
+              {cambiandoFavorito ? <Loader2 size={18} className="spin" /> : <Star size={18} fill={esFavorito ? C.gold : "none"} />}
+            </button>
+          </div>
+
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+            <MetricCard label="Precio actual" value={`$${cotizacion.precio_actual.toFixed(2)}`} color={C.text} />
+            <MetricCard label="Variación del día"
+              value={`${cotizacion.variacion_dia_pct >= 0 ? "+" : ""}${cotizacion.variacion_dia_pct.toFixed(2)}%`}
+              color={cotizacion.variacion_dia_pct >= 0 ? C.teal : C.coral} />
+          </div>
+
+          <div style={card}>
+            <div style={{ ...label, marginBottom: 10 }}>Histórico (6 meses, precio real de mercado)</div>
+            <PriceChart historial={cotizacion.historial} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------- Noticias ----------
+function NoticiasView() {
+  const [query, setQuery] = useState("");
+  const [resultados, setResultados] = useState(null);
+  const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState(null);
+
+  const buscar = async (e) => {
+    e.preventDefault();
+    if (!query.trim()) return;
+    setCargando(true);
+    setError(null);
+    try {
+      const r = await buscarNoticias(query.trim());
+      setResultados(r);
+    } catch (err) {
+      setError(err.message || String(err));
+      setResultados(null);
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, color: C.text }}>Noticias</div>
+        <div style={{ ...label }}>Busca noticias recientes de bolsa · cada búsqueda consulta la web en tiempo real</div>
+      </div>
+
+      <form onSubmit={buscar} style={{ display: "flex", gap: 8 }}>
+        <input style={{ ...inputStyle, maxWidth: 420 }} value={query} onChange={(e) => setQuery(e.target.value)}
+          placeholder="ej. NVIDIA resultados trimestrales" />
+        <button type="submit" disabled={cargando} style={{
+          background: C.gold, border: "none", color: "#1A1200", borderRadius: 8, fontWeight: 600,
+          padding: "9px 16px", fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 7,
+        }}>
+          {cargando ? <Loader2 size={15} className="spin" /> : <Search size={14} />}
+          Buscar
+        </button>
+      </form>
+
+      {error && (
+        <div style={{ ...card, borderColor: `${C.coral}55`, color: C.coral, fontSize: 13, display: "flex", gap: 8, alignItems: "center" }}>
+          <AlertTriangle size={16} /> {error}
+        </div>
+      )}
+
+      {cargando && (
+        <div style={{ color: C.textSec, display: "flex", gap: 8, alignItems: "center", fontFamily: FONT_BODY, fontSize: 13 }}>
+          <Loader2 size={15} className="spin" /> Buscando en la web…
+        </div>
+      )}
+
+      {resultados && resultados.length === 0 && (
+        <div style={{ ...card, textAlign: "center", padding: 30, color: C.textSec }}>Sin resultados relevantes para esa búsqueda.</div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {resultados && resultados.map((n, i) => (
+          <a key={i} href={n.url} target="_blank" rel="noreferrer" style={{ ...card, textDecoration: "none", display: "block" }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, color: C.text, marginBottom: 5 }}>{n.titular}</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.textSec, lineHeight: 1.55, marginBottom: 7 }}>{n.resumen}</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.textMuted }}>{n.fuente}</div>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Tira de favoritos (dashboard principal) ----------
+function FavoritosStrip({ favoritos, cargando, onAbrir, onQuitar }) {
+  if (cargando || !favoritos || favoritos.length === 0) return null;
+  return (
+    <div>
+      <div style={{ ...label, marginBottom: 8 }}>Favoritos</div>
+      <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
+        {favoritos.map((f) => (
+          <div key={f.ticker} onClick={() => onAbrir(f.ticker)} style={{
+            ...card, minWidth: 140, cursor: "pointer", position: "relative", padding: "12px 14px", flexShrink: 0,
+          }}>
+            <button onClick={(e) => { e.stopPropagation(); onQuitar(f.ticker); }} title="Quitar de favoritos" style={{
+              position: "absolute", top: 6, right: 6, background: "none", border: "none",
+              color: C.textMuted, cursor: "pointer", display: "flex",
+            }}>
+              <X size={13} />
+            </button>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.textSec }}>{f.ticker}</div>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.text }}>
+              {f.precio_actual != null ? `$${f.precio_actual.toFixed(2)}` : "—"}
+            </div>
+            {f.variacion_dia_pct != null && (
+              <div style={{ fontSize: 11, fontFamily: FONT_MONO, color: f.variacion_dia_pct >= 0 ? C.teal : C.coral }}>
+                {f.variacion_dia_pct >= 0 ? "+" : ""}{f.variacion_dia_pct.toFixed(2)}%
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ---------- Dashboard ----------
-function Dashboard({ propuestas, cargando, onSeleccionar, onNueva, onComparar, onEliminar, error }) {
+function Dashboard({ propuestas, cargando, onSeleccionar, onNueva, onComparar, onEliminar, error, favoritos, cargandoFavoritos, onAbrirFavorito, onQuitarFavorito }) {
   const [borrandoId, setBorrandoId] = useState(null);
 
   const manejarBorrar = async (e, p) => {
@@ -670,6 +904,8 @@ function Dashboard({ propuestas, cargando, onSeleccionar, onNueva, onComparar, o
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <FavoritosStrip favoritos={favoritos} cargando={cargandoFavoritos} onAbrir={onAbrirFavorito} onQuitar={onQuitarFavorito} />
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, color: C.text }}>Propuestas</div>
@@ -745,12 +981,15 @@ function Dashboard({ propuestas, cargando, onSeleccionar, onNueva, onComparar, o
 
 // ---------- App ----------
 export default function App() {
-  const [vista, setVista] = useState("dashboard"); // dashboard | nueva | detalle | comparador
+  const [vista, setVista] = useState("dashboard"); // dashboard | nueva | detalle | comparador | mercado | noticias
   const [propuestas, setPropuestas] = useState([]);
   const [propuestaActiva, setPropuestaActiva] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState(null);
   const [backendOk, setBackendOk] = useState(null);
+  const [favoritos, setFavoritos] = useState([]);
+  const [cargandoFavoritos, setCargandoFavoritos] = useState(true);
+  const [tickerMercado, setTickerMercado] = useState(null);
 
   const cargarPropuestas = useCallback(async () => {
     setCargando(true);
@@ -765,10 +1004,43 @@ export default function App() {
     }
   }, []);
 
+  const cargarFavoritos = useCallback(async () => {
+    setCargandoFavoritos(true);
+    try {
+      setFavoritos(await listarFavoritos());
+    } catch (err) {
+      // silencioso: los favoritos son un extra, no debe bloquear el dashboard
+    } finally {
+      setCargandoFavoritos(false);
+    }
+  }, []);
+
   useEffect(() => {
     comprobarSalud().then(() => setBackendOk(true)).catch(() => setBackendOk(false));
     cargarPropuestas();
-  }, [cargarPropuestas]);
+    cargarFavoritos();
+  }, [cargarPropuestas, cargarFavoritos]);
+
+  const abrirTickerEnMercado = (ticker) => {
+    setTickerMercado(ticker);
+    setVista("mercado");
+  };
+
+  const quitarFavoritoDesdeDashboard = async (ticker) => {
+    try {
+      await quitarFavorito(ticker);
+      cargarFavoritos();
+    } catch (err) {
+      alert(err.message || String(err));
+    }
+  };
+
+  const pestañasNav = [
+    { key: "dashboard", label: "Propuestas" },
+    { key: "mercado", label: "Mercado" },
+    { key: "noticias", label: "Noticias" },
+  ];
+  const enGrupoDashboard = ["dashboard", "nueva", "detalle", "comparador"].includes(vista);
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: FONT_BODY }}>
@@ -804,6 +1076,21 @@ export default function App() {
         </div>
       </div>
 
+      <div style={{ display: "flex", gap: 4, padding: "0 28px", borderBottom: `0.5px solid ${C.border}` }}>
+        {pestañasNav.map((p) => {
+          const activa = p.key === "dashboard" ? enGrupoDashboard : vista === p.key;
+          return (
+            <button key={p.key} onClick={() => setVista(p.key)} style={{
+              background: "none", border: "none", borderBottom: `2px solid ${activa ? C.gold : "transparent"}`,
+              color: activa ? C.gold : C.textSec, padding: "10px 14px", fontFamily: FONT_BODY, fontSize: 13,
+              fontWeight: activa ? 600 : 400, cursor: "pointer",
+            }}>
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+
       <div style={{ padding: "24px 28px", maxWidth: 1200, margin: "0 auto" }}>
         {vista === "dashboard" && (
           <Dashboard
@@ -812,6 +1099,9 @@ export default function App() {
             onNueva={() => setVista("nueva")}
             onComparar={() => setVista("comparador")}
             onEliminar={() => cargarPropuestas()}
+            favoritos={favoritos} cargandoFavoritos={cargandoFavoritos}
+            onAbrirFavorito={abrirTickerEnMercado}
+            onQuitarFavorito={quitarFavoritoDesdeDashboard}
           />
         )}
         {vista === "nueva" && (
@@ -826,6 +1116,13 @@ export default function App() {
         {vista === "comparador" && (
           <ComparadorView propuestas={propuestas} onVolver={() => setVista("dashboard")} />
         )}
+        {vista === "mercado" && (
+          <MercadoView
+            favoritos={favoritos} onFavoritosChange={cargarFavoritos}
+            tickerInicial={tickerMercado} onTickerConsumido={() => setTickerMercado(null)}
+          />
+        )}
+        {vista === "noticias" && <NoticiasView />}
       </div>
     </div>
   );
